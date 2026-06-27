@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Attendance &amp; Overtime Analyzer</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-header__inner">
+      <div class="brand">
+        <div class="brand__mark">⏱</div>
+        <div>
+          <h1 class="brand__title" data-i18n="app.title">Attendance &amp; Overtime Analyzer</h1>
+          <p class="brand__subtitle" data-i18n="app.subtitle">Upload an Excel file, analyze work hours &amp; overtime, then export a polished report.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="lang-switch" role="group" aria-label="Language">
+          <button class="lang-btn" data-lang="en">English</button>
+          <button class="lang-btn" data-lang="ar">العربية</button>
+        </div>
+        <button id="resetBtn" class="btn btn--ghost" data-i18n="btn.reset" hidden>↺ Upload another file</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="banner" class="banner" hidden></div>
+
+    <!-- STEP 1: Upload -->
+    <section id="uploadSection" class="card">
+      <h2 class="card__title" data-i18n="upload.title">1 · Upload attendance file</h2>
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload Excel file">
+        <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
+        <div class="dropzone__icon">📂</div>
+        <p class="dropzone__text" data-i18n="upload.drop">Drag &amp; drop your Excel file here, or browse</p>
+        <p class="dropzone__hint" data-i18n="upload.hint">Accepted: .xlsx, .xls · max 15 MB</p>
+      </div>
+      <div id="uploadStatus" class="upload-status" hidden></div>
+    </section>
+
+    <!-- STEP 2: Workbook info + mapping -->
+    <section id="workbookSection" class="card" hidden>
+      <h2 class="card__title" data-i18n="workbook.title">2 · Workbook &amp; columns</h2>
+      <div class="meta-grid">
+        <div class="meta"><span class="meta__label" data-i18n="meta.file">File</span><span id="metaFile" class="meta__value">—</span></div>
+        <div class="meta"><span class="meta__label" data-i18n="meta.sheet">Sheet</span>
+          <select id="sheetSelect" class="input meta__value"></select>
+        </div>
+        <div class="meta"><span class="meta__label" data-i18n="meta.rows">Rows</span><span id="metaRows" class="meta__value">—</span></div>
+        <div class="meta"><span class="meta__label" data-i18n="meta.detected">Detected columns</span><span id="metaDetected" class="meta__value">—</span></div>
+      </div>
+
+      <div id="mappingNotice" class="notice notice--warn" data-i18n="mapping.notice" hidden>
+        Some required columns could not be detected automatically. Please map them below.
+      </div>
+
+      <details id="mappingDetails" class="mapping">
+        <summary><span data-i18n="mapping.summary">Column mapping</span> <span class="mapping__sub" data-i18n="mapping.sub">(adjust if auto-detection is wrong)</span></summary>
+        <div id="mappingForm" class="mapping__grid"></div>
+      </details>
+    </section>
+
+    <!-- STEP 3: Settings -->
+    <section id="settingsSection" class="card" hidden>
+      <h2 class="card__title" data-i18n="settings.title">3 · Settings</h2>
+
+      <!-- Calculation mode -->
+      <fieldset class="mode">
+        <legend class="mode__legend" data-i18n="mode.title">Calculation mode</legend>
+        <label class="mode__option">
+          <input type="radio" name="calcMode" value="firstLast" checked />
+          <span>
+            <strong data-i18n="mode.firstLast">First &amp; last punch of the day</strong>
+            <small data-i18n="mode.firstLast.desc">Ignore status labels. Earliest punch = check-in, latest = check-out. (Default)</small>
+          </span>
+        </label>
+        <label class="mode__option">
+          <input type="radio" name="calcMode" value="punchType" />
+          <span>
+            <strong data-i18n="mode.punchType">Use punch status / type</strong>
+            <small data-i18n="mode.punchType.desc">Use recognized statuses (Check In/Out, دخول/خروج). A missing check-out is reported as an issue.</small>
+            <small id="modePunchHint" class="mode__hint" data-i18n="mode.punchType.unavailable" hidden>No punch-status column was detected in this file.</small>
+          </span>
+        </label>
+      </fieldset>
+
+      <div class="settings-grid">
+        <label class="field">
+          <span class="field__label" data-i18n="field.standardHours">Standard work hours / day</span>
+          <input id="setStandardHours" class="input" type="number" min="0" step="0.5" value="10" />
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.startTime">Official start time</span>
+          <input id="setStartTime" class="input" type="time" />
+          <span class="field__hint" data-i18n="field.startTime.hint">Enables late detection</span>
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.endTime">Official end time</span>
+          <input id="setEndTime" class="input" type="time" />
+          <span class="field__hint" data-i18n="field.endTime.hint">Enables early-leave detection</span>
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.breakMinutes">Break duration (minutes)</span>
+          <input id="setBreakMinutes" class="input" type="number" min="0" step="5" value="0" />
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.overtimeRounding">Overtime rounding</span>
+          <select id="setOvertimeRounding" class="input">
+            <option value="none" data-i18n="rounding.none">No rounding</option>
+            <option value="nearest15" data-i18n="rounding.15">Nearest 15 minutes</option>
+            <option value="nearest30" data-i18n="rounding.30">Nearest 30 minutes</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.minOvertime">Min. overtime threshold (minutes)</span>
+          <input id="setMinOvertime" class="input" type="number" min="0" step="5" value="0" />
+        </label>
+        <fieldset class="field field--wide">
+          <span class="field__label" data-i18n="field.weekend">Exclude weekend days (counted fully as overtime)</span>
+          <div id="weekendDays" class="weekend-days"></div>
+        </fieldset>
+      </div>
+      <div class="actions">
+        <button id="analyzeBtn" class="btn btn--primary" data-i18n="btn.analyze">Analyze attendance</button>
+      </div>
+    </section>
+
+    <!-- STEP 4: Results -->
+    <section id="resultsSection" hidden>
+      <div class="results-head">
+        <h2 class="card__title card__title--bare" data-i18n="results.title">Results dashboard</h2>
+        <button id="exportBtn" class="btn btn--primary" data-i18n="btn.export">⬇ Download Excel report</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="stat__value" id="statEmployees">0</div><div class="stat__label" data-i18n="stat.employees">Employees</div></div>
+        <div class="stat"><div class="stat__value" id="statWork">0</div><div class="stat__label" data-i18n="stat.work">Total work hours</div></div>
+        <div class="stat"><div class="stat__value" id="statOvertime">0</div><div class="stat__label" data-i18n="stat.overtime">Total overtime hours</div></div>
+        <div class="stat stat--warn"><div class="stat__value" id="statIncomplete">0</div><div class="stat__label" data-i18n="stat.incomplete">Incomplete days</div></div>
+        <div class="stat stat--warn"><div class="stat__value" id="statAbsent">0</div><div class="stat__label" data-i18n="stat.absent">Absent days</div></div>
+        <div class="stat"><div class="stat__value" id="statLate">0</div><div class="stat__label" data-i18n="stat.late">Late records</div></div>
+        <div class="stat"><div class="stat__value" id="statEarly">0</div><div class="stat__label" data-i18n="stat.early">Early leave records</div></div>
+      </div>
+
+      <div id="periodNote" class="notice notice--info" hidden></div>
+
+      <div class="tabs">
+        <button class="tab is-active" data-tab="daily" data-i18n="tab.daily">Daily attendance</button>
+        <button class="tab" data-tab="employees" data-i18n="tab.employees">Employee summary</button>
+        <button class="tab" data-tab="issues" data-i18n="tab.issues">Issues</button>
+      </div>
+
+      <div class="toolbar">
+        <input id="searchInput" class="input" type="search" data-i18n-placeholder="search.placeholder" placeholder="Search by employee ID or name…" />
+        <select id="issueFilter" class="input" hidden>
+          <option value="" data-i18n="filter.allIssues">All issue types</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <table id="dataTable" class="data-table">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+        <p id="emptyState" class="empty-state" data-i18n="empty.noRows" hidden>No matching rows.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span data-i18n="footer">Attendance &amp; Overtime Analyzer · runs locally · your file never leaves this machine.</span>
+  </footer>
+
+  <div id="overlay" class="overlay" hidden><div class="spinner"></div><span id="overlayText">Working…</span></div>
+
+  <script src="/i18n.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

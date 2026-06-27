@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Runtime-generated folders (keep the dirs, ignore contents)
+uploads/*
+exports/*
+!uploads/.gitkeep
+!exports/.gitkeep
+
+# Logs
+logs/*
+!logs/.gitkeep
+*.log
+npm-debug.log*
+
+# Temp / OS / editor / tooling files
+tmp/
+temp/
+*.tmp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/
+
+# Environment
+.env
+.env.local

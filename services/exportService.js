@@ -13,6 +13,8 @@ const { decimalToHM } = require('../utils/dateUtils');
 const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
 const HEADER_FONT = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
 const THIN_BORDER = { style: 'thin', color: { argb: 'FFD9D9D9' } };
+const EXCEEDED_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+const EXCEEDED_FONT = { bold: true, color: { argb: 'FFB91C1C' } };
 
 const LABELS = {
   en: {
@@ -225,8 +227,12 @@ async function buildReport(analysis, lang = 'en', timeUnit = 'hours') {
   wb.creator = 'Attendance & Overtime Analyzer';
   wb.created = new Date();
 
+  const exceededEmpIds = new Set(
+    analysis.daily.filter((d) => d.breakExceeded).map((d) => d.employeeId)
+  );
+
   buildDailySheet(wb, analysis.daily, L, isRtl, timeUnit, lang);
-  buildEmployeeSheet(wb, analysis.employees, L, isRtl, timeUnit, lang);
+  buildEmployeeSheet(wb, analysis.employees, L, isRtl, timeUnit, lang, exceededEmpIds);
   buildIssuesSheet(wb, analysis.issues, L, isRtl);
   buildSettingsSheet(wb, analysis.settings, analysis.totals, L, isRtl);
 
@@ -293,8 +299,9 @@ function buildDailySheet(wb, daily, L, isRtl, timeUnit, lang) {
     { header: C.status, key: 'status', width: 28 },
   ], isRtl);
 
+  const exceededRows = [];
   daily.forEach((d) => {
-    sheet.addRow({
+    const row = sheet.addRow({
       employeeId: d.employeeId,
       employeeName: d.employeeName,
       date: d.date,
@@ -307,12 +314,24 @@ function buildDailySheet(wb, daily, L, isRtl, timeUnit, lang) {
       earlyLeaveMinutes: formatDuration(d.earlyLeaveMinutes, timeUnit, lang),
       status: formatDailyStatus(d, L),
     });
+    if (d.breakExceeded) exceededRows.push(row);
   });
   numberFormat(sheet, ['workHours', 'overtimeHours'], '0.00');
   zebra(sheet);
+  exceededRows.forEach((row) => highlightExceededRow(row, ['breakMinutes', 'status']));
 }
 
-function buildEmployeeSheet(wb, employees, L, isRtl, timeUnit, lang) {
+function highlightExceededRow(row, boldKeys) {
+  row.eachCell((cell) => {
+    cell.fill = EXCEEDED_FILL;
+  });
+  boldKeys.forEach((key) => {
+    const cell = row.getCell(key);
+    if (cell) cell.font = EXCEEDED_FONT;
+  });
+}
+
+function buildEmployeeSheet(wb, employees, L, isRtl, timeUnit, lang, exceededEmpIds = new Set()) {
   const C = L.cols;
   const sheet = wb.addWorksheet(L.sheets.employees);
   styleSheet(sheet, [
@@ -328,8 +347,9 @@ function buildEmployeeSheet(wb, employees, L, isRtl, timeUnit, lang) {
     { header: C.absentDays, key: 'absentDays', width: 14 },
   ], isRtl);
 
+  const exceededRows = [];
   employees.forEach((e) => {
-    sheet.addRow({
+    const row = sheet.addRow({
       employeeId: e.employeeId,
       employeeName: e.employeeName,
       daysCount: e.daysCount,
@@ -341,9 +361,11 @@ function buildEmployeeSheet(wb, employees, L, isRtl, timeUnit, lang) {
       incompleteDays: e.incompleteDays,
       absentDays: e.absentDays,
     });
+    if (exceededEmpIds.has(e.employeeId)) exceededRows.push(row);
   });
   numberFormat(sheet, ['totalWorkHours', 'totalOvertimeHours'], '0.00');
   zebra(sheet);
+  exceededRows.forEach((row) => highlightExceededRow(row, ['totalBreakMinutes']));
 }
 
 function buildIssuesSheet(wb, issues, L, isRtl) {

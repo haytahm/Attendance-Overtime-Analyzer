@@ -330,10 +330,11 @@ function computeDay(group, settings, issues) {
   let breakSegments = [];
 
   if (usePunchType) {
-    // Status-driven: NO fallback to unrecognized punches.
+    // Status-driven: include 'unknown' punches (e.g. "Unknown" / blank) as valid
+    // candidates for first-in and last-out, while keeping Break In/Out separate.
     const kinds = sortedPunches.map((p) => ({ ...p, kind: punchKind(p.punchType) }));
-    const ins = kinds.filter((p) => p.kind === 'in');
-    const outs = kinds.filter((p) => p.kind === 'out');
+    const ins = kinds.filter((p) => p.kind === 'in' || p.kind === 'unknown');
+    const outs = kinds.filter((p) => p.kind === 'out' || p.kind === 'unknown');
     if (ins.length) inPunch = minBy(ins, (p) => p.dateTime.getTime());
     if (outs.length) outPunch = maxBy(outs, (p) => p.dateTime.getTime());
 

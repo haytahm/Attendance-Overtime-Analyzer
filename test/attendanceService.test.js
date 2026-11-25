@@ -209,6 +209,25 @@ test('absence: configured weekend days are not counted absent', () => {
   assert.strictEqual(employees[0].absentDays, 1);
 });
 
+test('punchType mode considers Unknown punches for first-in and last-out', () => {
+  const records = [
+    rec('E1', '2024-08-27', '08:00:00', { punchType: 'Unknown' }),
+    rec('E1', '2024-08-27', '17:00:00', { punchType: 'Check Out' }),
+    rec('E2', '2024-08-27', '08:00:00', { punchType: 'Check In' }),
+    rec('E2', '2024-08-27', '17:00:00', { punchType: 'Unknown' }),
+  ];
+  const { daily } = analyze(records, { calculationMode: 'punchType', standardHours: 8 });
+  assert.strictEqual(daily.length, 2);
+  assert.strictEqual(daily[0].complete, true);
+  assert.strictEqual(daily[0].firstIn, '08:00:00');
+  assert.strictEqual(daily[0].lastOut, '17:00:00');
+  assert.strictEqual(daily[0].workHours, 9);
+  assert.strictEqual(daily[1].complete, true);
+  assert.strictEqual(daily[1].firstIn, '08:00:00');
+  assert.strictEqual(daily[1].lastOut, '17:00:00');
+  assert.strictEqual(daily[1].workHours, 9);
+});
+
 test('punchType mode flags missing check-in', () => {
   const records = [
     rec('E1', '2024-08-27', '17:00:00', { punchType: 'Check Out' }),

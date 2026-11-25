@@ -89,7 +89,7 @@ test('punchType mode deducts break time from Break Out/In', () => {
   assert.strictEqual(daily[0].overtimeHours, 0);
 });
 
-test('multiple break pairs sum, and firstLast mode ignores breaks', () => {
+test('multiple break pairs sum in both punchType and firstLast modes, and flag >75m break', () => {
   const records = [
     rec('E1', '2024-08-27', '08:00:00', { punchType: 'Check In' }),
     rec('E1', '2024-08-27', '10:00:00', { punchType: 'Break Out' }),
@@ -98,14 +98,90 @@ test('multiple break pairs sum, and firstLast mode ignores breaks', () => {
     rec('E1', '2024-08-27', '14:00:00', { punchType: 'Break In' }), // 60m
     rec('E1', '2024-08-27', '18:00:00', { punchType: 'Check Out' }),
   ];
-  const punch = analyze(records, { calculationMode: 'punchType' }).daily[0];
-  assert.strictEqual(punch.breakMinutes, 90); // 30 + 60
-  assert.strictEqual(punch.workHours, 8.5); // 10h span - 1.5h break
+  const punchRes = analyze(records, { calculationMode: 'punchType' });
+  assert.strictEqual(punchRes.daily[0].breakMinutes, 90); // 30 + 60
+  assert.strictEqual(punchRes.daily[0].workHours, 8.5); // 10h span - 1.5h break
+  assert.strictEqual(punchRes.daily[0].breakExceeded, true);
+  assert.ok(punchRes.issues.some((i) => i.issueKey === 'BREAK_EXCEEDED'));
 
-  // firstLast ignores break punches entirely (no manual break set).
-  const first = analyze(records, { calculationMode: 'firstLast' }).daily[0];
-  assert.strictEqual(first.breakMinutes, 0);
-  assert.strictEqual(first.workHours, 10);
+  // firstLast pairs intermediate punches between first-in and last-out as breaks too.
+  const firstRes = analyze(records, { calculationMode: 'firstLast' });
+  assert.strictEqual(firstRes.daily[0].breakMinutes, 90);
+  assert.strictEqual(firstRes.daily[0].workHours, 8.5);
+  assert.strictEqual(firstRes.daily[0].breakExceeded, true);
+  assert.ok(firstRes.issues.some((i) => i.issueKey === 'BREAK_EXCEEDED'));
+});
+
+test('punchType mode sums intermediate Check Out -> Check In pairs as break', () => {
+  const records = [
+    rec('E1', '2024-08-27', '09:00:00', { punchType: 'Check In' }),
+    rec('E1', '2024-08-27', '10:00:00', { punchType: 'Check Out' }),
+    rec('E1', '2024-08-27', '11:30:00', { punchType: 'Check In' }), // 90m break
+    rec('E1', '2024-08-27', '17:00:00', { punchType: 'Check Out' }),
+  ];
+  const { daily, issues } = analyze(records, { calculationMode: 'punchType', standardHours: 8 });
+  assert.strictEqual(daily[0].breakMinutes, 90);
+  assert.strictEqual(daily[0].breakExceeded, true);
+  assert.strictEqual(daily[0].workHours, 6.5); // 8h span - 1.5h break
+  assert.ok(issues.some((i) => i.issueKey === 'BREAK_EXCEEDED'));
+});
+
+test('firstLast break within 75m limit does not trigger BREAK_EXCEEDED', () => {
+  const records = [
+    rec('E1', '2024-08-27', '08:00:00'),
+    rec('E1', '2024-08-27', '12:00:00'),
+    rec('E1', '2024-08-27', '13:15:00'), // exactly 75m (1h 15m)
+    rec('E1', '2024-08-27', '18:00:00'),
+  ];
+  const { daily, issues } = analyze(records, {});
+  assert.strictEqual(daily[0].breakMinutes, 75);
+  assert.strictEqual(daily[0].breakExceeded, false);
+  assert.strictEqual(daily[0].workHours, 8.75); // 10h - 1.25h
+  assert.strictEqual(issues.filter((i) => i.issueKey === 'BREAK_EXCEEDED').length, 0);
+});
+
+test('nightShiftCutoff groups post-midnight punch to previous day', () => {
+  const records = [
+    rec('E1', '2024-08-27', '22:00:00'),
+    rec('E1', '2024-08-28', '06:00:00'),
+  ];
+  const { daily } = analyze(records, { nightShiftCutoff: '08:00', standardHours: 8 });
+  assert.strictEqual(daily.length, 1);
+  assert.strictEqual(daily[0].date, '2024-08-27');
+  assert.strictEqual(daily[0].firstIn, '22:00:00');
+  assert.strictEqual(daily[0].lastOut, '06:00:00');
+  assert.strictEqual(daily[0].workHours, 8);
+});
+
+test('absence uses per-employee date range so mid-month joiners are not marked absent earlier', () => {
+  const records = [
+    rec('E1', '2024-09-01', '08:00:00'), rec('E1', '2024-09-01', '16:00:00'),
+    rec('E1', '2024-09-05', '08:00:00'), rec('E1', '2024-09-05', '16:00:00'),
+    // E2 starts on 2024-09-04 and attends 04 and 05 -> 0 absences
+    rec('E2', '2024-09-04', '08:00:00'), rec('E2', '2024-09-04', '16:00:00'),
+    rec('E2', '2024-09-05', '08:00:00'), rec('E2', '2024-09-05', '16:00:00'),
+  ];
+  const { employees } = analyze(records, { weekendDays: [] });
+  const e1 = employees.find((e) => e.employeeId === 'E1');
+  const e2 = employees.find((e) => e.employeeId === 'E2');
+  assert.strictEqual(e1.absentDays, 3); // Sep 2, 3, 4
+  assert.strictEqual(e2.absentDays, 0);
+});
+
+test('periodStart and periodEnd filter records and define absence range', () => {
+  const records = [
+    rec('E1', '2024-09-01', '08:00:00'), rec('E1', '2024-09-01', '16:00:00'),
+    rec('E1', '2024-09-03', '08:00:00'), rec('E1', '2024-09-03', '16:00:00'),
+    rec('E1', '2024-09-10', '08:00:00'), rec('E1', '2024-09-10', '16:00:00'), // outside period
+  ];
+  const { daily, employees } = analyze(records, {
+    periodStart: '2024-09-01',
+    periodEnd: '2024-09-05',
+    weekendDays: [],
+  });
+  assert.strictEqual(daily.length, 2); // Sep 10 excluded
+  assert.strictEqual(employees[0].absentDays, 3); // Sep 2, 4, 5 missing in [1..5]
+  assert.ok(daily[0].punches.length === 2);
 });
 
 test('absence: working day with no record is marked absent', () => {

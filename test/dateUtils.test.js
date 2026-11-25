@@ -7,8 +7,16 @@ const d = require('../utils/dateUtils');
 test('normalizeDate handles ISO, day-first and Excel serials', () => {
   assert.strictEqual(d.normalizeDate('2024-08-27'), '2024-08-27');
   assert.strictEqual(d.normalizeDate('27/08/2024'), '2024-08-27');
+  assert.strictEqual(d.normalizeDate('08/27/2024'), '2024-08-27'); // auto detects MDY when 2nd > 12
+  assert.strictEqual(d.normalizeDate('05/03/2024', 'DMY'), '2024-03-05');
+  assert.strictEqual(d.normalizeDate('05/03/2024', 'MDY'), '2024-05-03');
   assert.strictEqual(d.normalizeDate('2024/8/7'), '2024-08-07');
   assert.strictEqual(d.normalizeDate(45536), '2024-09-01'); // Excel serial
+});
+
+test('previousDate returns prior calendar day', () => {
+  assert.strictEqual(d.previousDate('2024-03-01'), '2024-02-29'); // leap year
+  assert.strictEqual(d.previousDate('2024-08-27'), '2024-08-26');
 });
 
 test('normalizeDate rejects garbage', () => {

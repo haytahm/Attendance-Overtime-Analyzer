@@ -21,12 +21,13 @@ function pad2(n) {
  * Normalize a date-ish value to an ISO date string `YYYY-MM-DD`.
  * Returns null when the value cannot be understood.
  */
-function normalizeDate(value) {
+function normalizeDate(value, dateFormat) {
   if (value === null || value === undefined || value === '') return null;
 
   // Excel serial number (e.g. 45561) -> calendar date
   if (typeof value === 'number' && isFinite(value)) {
-    const d = new Date(EXCEL_EPOCH_MS + Math.floor(value) * MS_PER_DAY);
+    const utc = new Date(EXCEL_EPOCH_MS + Math.floor(value) * MS_PER_DAY);
+    const d = new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
     return isValidDate(d) ? toISODate(d) : null;
   }
 
@@ -44,11 +45,23 @@ function normalizeDate(value) {
     return buildISO(y, mo, da);
   }
 
-  // Day-first: 27-08-2024, 27/08/2024, 27.08.2024
+  // Day-first or month-first: 27-08-2024, 27/08/2024, 27.08.2024
   m = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
   if (m) {
-    const [, da, mo, y] = m;
-    return buildISO(y, mo, da);
+    let da, mo;
+    if (dateFormat === 'MDY') {
+      mo = m[1]; da = m[2];
+    } else if (dateFormat === 'DMY') {
+      da = m[1]; mo = m[2];
+    } else {
+      // 'auto': default to DMY, unless second part > 12 and first <= 12 (unambiguously MDY)
+      if (Number(m[2]) > 12 && Number(m[1]) <= 12) {
+        mo = m[1]; da = m[2];
+      } else {
+        da = m[1]; mo = m[2];
+      }
+    }
+    return buildISO(m[3], mo, da);
   }
 
   // Fallback: let the engine try (handles "Aug 27 2024" etc.)
@@ -204,6 +217,13 @@ function eachDateInclusive(startISO, endISO) {
   return out;
 }
 
+function previousDate(isoDate) {
+  const d = new Date(`${isoDate}T12:00:00`);
+  if (!isValidDate(d)) return isoDate;
+  d.setDate(d.getDate() - 1);
+  return toISODate(d);
+}
+
 module.exports = {
   normalizeDate,
   normalizeTime,
@@ -217,4 +237,5 @@ module.exports = {
   weekdayOf,
   eachDateInclusive,
   secondsToHMS,
+  previousDate,
 };

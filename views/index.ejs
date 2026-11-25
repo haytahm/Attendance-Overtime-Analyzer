@@ -90,7 +90,7 @@
       <div class="settings-grid">
         <label class="field">
           <span class="field__label" data-i18n="field.standardHours">Standard work hours / day</span>
-          <input id="setStandardHours" class="input" type="number" min="0" step="0.5" value="10" />
+          <input id="setStandardHours" class="input" type="number" min="0" step="0.5" value="8" />
         </label>
         <label class="field">
           <span class="field__label" data-i18n="field.startTime">Official start time</span>
@@ -118,6 +118,34 @@
           <span class="field__label" data-i18n="field.minOvertime">Min. overtime threshold (minutes)</span>
           <input id="setMinOvertime" class="input" type="number" min="0" step="5" value="0" />
         </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.maxBreakMinutes">Max allowed break / day (minutes)</span>
+          <input id="setMaxBreakMinutes" class="input" type="number" min="0" step="5" value="75" />
+          <span class="field__hint" data-i18n="field.maxBreakMinutes.hint">0 = no limit. Default: 75 min (1h 15m)</span>
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.nightShiftCutoff">Night shift cutoff time</span>
+          <input id="setNightShiftCutoff" class="input" type="time" />
+          <span class="field__hint" data-i18n="field.nightShiftCutoff.hint">Punches before this time count as previous day</span>
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.dateFormat">Date format in file</span>
+          <select id="setDateFormat" class="input">
+            <option value="auto" data-i18n="dateFormat.auto">Auto-detect</option>
+            <option value="DMY" data-i18n="dateFormat.DMY">Day / Month / Year</option>
+            <option value="MDY" data-i18n="dateFormat.MDY">Month / Day / Year</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.periodStart">Period start date</span>
+          <input id="setPeriodStart" class="input" type="date" />
+          <span class="field__hint" data-i18n="field.periodStart.hint">Optional — used for filtering &amp; absence range</span>
+        </label>
+        <label class="field">
+          <span class="field__label" data-i18n="field.periodEnd">Period end date</span>
+          <input id="setPeriodEnd" class="input" type="date" />
+          <span class="field__hint" data-i18n="field.periodEnd.hint">Optional — used for filtering &amp; absence range</span>
+        </label>
         <fieldset class="field field--wide">
           <span class="field__label" data-i18n="field.weekend">Exclude weekend days (counted fully as overtime)</span>
           <div id="weekendDays" class="weekend-days"></div>
@@ -143,6 +171,7 @@
         <div class="stat stat--warn"><div class="stat__value" id="statAbsent">0</div><div class="stat__label" data-i18n="stat.absent">Absent days</div></div>
         <div class="stat"><div class="stat__value" id="statLate">0</div><div class="stat__label" data-i18n="stat.late">Late records</div></div>
         <div class="stat"><div class="stat__value" id="statEarly">0</div><div class="stat__label" data-i18n="stat.early">Early leave records</div></div>
+        <div class="stat stat--warn"><div class="stat__value" id="statBreakExceeded">0</div><div class="stat__label" data-i18n="stat.breakExceeded">Break exceeded</div></div>
       </div>
 
       <div id="periodNote" class="notice notice--info" hidden></div>
@@ -158,6 +187,10 @@
         <select id="issueFilter" class="input" hidden>
           <option value="" data-i18n="filter.allIssues">All issue types</option>
         </select>
+        <div id="unitToggle" class="unit-toggle" role="group" aria-label="Time display unit">
+          <button type="button" class="unit-btn is-active" data-unit="hours" data-i18n="unit.hours">Hours</button>
+          <button type="button" class="unit-btn" data-unit="minutes" data-i18n="unit.minutes">Minutes</button>
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -175,6 +208,17 @@
   </footer>
 
   <div id="overlay" class="overlay" hidden><div class="spinner"></div><span id="overlayText">Working…</span></div>
+
+  <div id="punchModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="punchModalTitle">
+    <div class="modal__backdrop" id="punchModalBackdrop"></div>
+    <div class="modal__dialog">
+      <div class="modal__head">
+        <h3 id="punchModalTitle" class="modal__title" data-i18n="modal.title">Day Punch Details</h3>
+        <button type="button" id="punchModalClose" class="modal__close" aria-label="Close">✕</button>
+      </div>
+      <div id="punchModalBody" class="modal__body"></div>
+    </div>
+  </div>
 
   <script src="/i18n.js"></script>
   <script src="/app.js"></script>

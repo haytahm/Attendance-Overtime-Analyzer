@@ -152,7 +152,9 @@ router.post('/analyze', (req, res) => {
 router.post('/export', async (req, res) => {
   try {
     const analysis = runAnalysis(req.body);
-    const buffer = await exportService.buildReport(analysis);
+    const lang = req.body.lang === 'ar' ? 'ar' : 'en';
+    const timeUnit = req.body.timeUnit === 'minutes' ? 'minutes' : 'hours';
+    const buffer = await exportService.buildReport(analysis, lang, timeUnit);
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="attendance-report-${stamp}.xlsx"`);

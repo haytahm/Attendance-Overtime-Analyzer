@@ -29,6 +29,7 @@ const state = {
   detection: null,
   analysis: null,
   activeTab: 'daily',
+  timeUnit: 'hours',
   search: '',
   issueFilter: '',
   sort: { key: null, dir: 1 },
@@ -278,8 +279,13 @@ function collectSettings() {
     startTime: $('setStartTime').value,
     endTime: $('setEndTime').value,
     breakMinutes: $('setBreakMinutes').value,
+    maxBreakMinutes: $('setMaxBreakMinutes').value,
     overtimeRounding: $('setOvertimeRounding').value,
     minOvertimeMinutes: $('setMinOvertime').value,
+    nightShiftCutoff: $('setNightShiftCutoff').value,
+    dateFormat: $('setDateFormat').value,
+    periodStart: $('setPeriodStart').value,
+    periodEnd: $('setPeriodEnd').value,
     weekendDays,
   };
 }
@@ -323,6 +329,7 @@ function renderDashboard() {
   $('statAbsent').textContent = totals.absentDays || 0;
   $('statLate').textContent = totals.lateRecords;
   $('statEarly').textContent = totals.earlyLeaveRecords;
+  $('statBreakExceeded').textContent = (state.analysis.issues || []).filter((i) => i.issueKey === 'BREAK_EXCEEDED').length;
 
   renderPeriodNote(totals);
   populateIssueFilter();
@@ -369,9 +376,9 @@ const COLUMNS = {
     { key: 'lastOut', labelKey: 'col.lastOut' },
     { key: 'workHours', labelKey: 'col.workHrs', num: true },
     { key: 'overtimeHours', labelKey: 'col.otHrs', num: true },
-    { key: 'breakMinutes', labelKey: 'col.breakM', num: true },
-    { key: 'lateMinutes', labelKey: 'col.lateM', num: true },
-    { key: 'earlyLeaveMinutes', labelKey: 'col.earlyM', num: true },
+    { key: 'breakMinutes', labelKey: 'col.breakM', num: true, duration: true, punchDetails: true },
+    { key: 'lateMinutes', labelKey: 'col.lateM', num: true, duration: true },
+    { key: 'earlyLeaveMinutes', labelKey: 'col.earlyM', num: true, duration: true },
     { key: 'status', labelKey: 'col.status', dailyStatus: true },
   ],
   employees: [
@@ -380,9 +387,9 @@ const COLUMNS = {
     { key: 'daysCount', labelKey: 'col.attendanceDays', num: true, daysBadge: true },
     { key: 'totalWorkHours', labelKey: 'col.workHrs', num: true },
     { key: 'totalOvertimeHours', labelKey: 'col.otHrs', num: true },
-    { key: 'totalBreakMinutes', labelKey: 'col.breakM', num: true },
-    { key: 'totalLateMinutes', labelKey: 'col.lateM', num: true },
-    { key: 'totalEarlyLeaveMinutes', labelKey: 'col.earlyM', num: true },
+    { key: 'totalBreakMinutes', labelKey: 'col.breakM', num: true, duration: true },
+    { key: 'totalLateMinutes', labelKey: 'col.lateM', num: true, duration: true },
+    { key: 'totalEarlyLeaveMinutes', labelKey: 'col.earlyM', num: true, duration: true },
     { key: 'incompleteDays', labelKey: 'col.incomplete', num: true },
     { key: 'absentDays', labelKey: 'col.absentDays', num: true },
   ],
@@ -444,15 +451,63 @@ function renderTable() {
   const rows = currentRows();
   $('emptyState').hidden = rows.length > 0;
 
-  body.innerHTML = rows.map((r) =>
-    '<tr>' + cols.map((c) => `<td>${renderCell(r, c)}</td>`).join('') + '</tr>'
+  body.innerHTML = rows.map((r, idx) =>
+    '<tr>' + cols.map((c) => `<td>${renderCell(r, c, idx)}</td>`).join('') + '</tr>'
   ).join('');
+
+  // Click any duration span to toggle that single cell between hours and minutes.
+  body.querySelectorAll('.dur-toggle').forEach((el) =>
+    el.addEventListener('click', () => {
+      const mins = Number(el.dataset.mins);
+      const cur = el.dataset.unit;
+      const next = cur === 'hours' ? 'minutes' : 'hours';
+      el.dataset.unit = next;
+      el.textContent = formatDuration(mins, next);
+    })
+  );
+
+  // Click "Details" button to open the day's punch breakdown modal.
+  body.querySelectorAll('.punch-details-btn').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const row = rows[Number(btn.dataset.rowIdx)];
+      if (row) openPunchModal(row);
+    })
+  );
 }
 
-function renderCell(row, col) {
+function formatDuration(minutes, unit) {
+  const m = Math.round(Number(minutes) || 0);
+  if (m === 0) return '0';
+  if (unit === 'minutes') {
+    return state.lang === 'ar' ? `${m} د` : `${m}m`;
+  }
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (state.lang === 'ar') {
+    if (h && rem) return `${h}س ${rem}د`;
+    if (h) return `${h}س`;
+    return `${rem}د`;
+  }
+  if (h && rem) return `${h}h ${rem}m`;
+  if (h) return `${h}h`;
+  return `${rem}m`;
+}
+
+function renderCell(row, col, rowIdx) {
   const val = row[col.key];
   if (col.dailyStatus) return dailyStatusBadge(row);
   if (col.issueBadge) return issueBadge(row);
+  if (col.duration) {
+    const mins = Number(val) || 0;
+    const altUnit = state.timeUnit === 'hours' ? 'minutes' : 'hours';
+    const durHtml = mins > 0
+      ? `<span class="dur-toggle" data-mins="${mins}" data-unit="${state.timeUnit}" title="${escapeHtml(formatDuration(mins, altUnit))}">${escapeHtml(formatDuration(mins, state.timeUnit))}</span>`
+      : '0';
+    if (col.punchDetails && row.punches && row.punches.length > 0) {
+      return `${durHtml}<button type="button" class="btn-xs punch-details-btn" data-row-idx="${rowIdx}">${escapeHtml(t('btn.details'))}</button>`;
+    }
+    return durHtml;
+  }
   if (col.daysBadge && row.exceedsMonth) {
     // Impossible count for a single month → flag it (caused by out-of-month dates).
     const title = t('days.badgeTitle', {
@@ -477,7 +532,10 @@ function dailyStatusBadge(row) {
   if (row.isWeekend) notes.push(t('status.weekend'));
   if (row.lateMinutes > 0) notes.push(t('status.late', { n: row.lateMinutes }));
   if (row.earlyLeaveMinutes > 0) notes.push(t('status.early', { n: row.earlyLeaveMinutes }));
-  if (row.breakMinutes > 0) notes.push(t('status.break', { n: row.breakMinutes }));
+  if (row.breakMinutes > 0) {
+    if (row.breakExceeded) notes.push(t('status.breakExceeded', { n: row.breakMinutes }));
+    else notes.push(t('status.break', { n: row.breakMinutes }));
+  }
   if (!notes.length) return `<span class="badge badge--ok">${escapeHtml(t('status.OK'))}</span>`;
   return `<span class="badge badge--warn">${escapeHtml(notes.join('، '))}</span>`;
 }
@@ -513,6 +571,45 @@ function setupTabs() {
 function setupToolbar() {
   $('searchInput').addEventListener('input', (e) => { state.search = e.target.value; renderTable(); });
   $('issueFilter').addEventListener('change', (e) => { state.issueFilter = e.target.value; renderTable(); });
+  document.querySelectorAll('#unitToggle .unit-btn').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#unitToggle .unit-btn').forEach((b) => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      state.timeUnit = btn.dataset.unit;
+      if (state.analysis) renderTable();
+    })
+  );
+  $('punchModalClose').addEventListener('click', closePunchModal);
+  $('punchModalBackdrop').addEventListener('click', closePunchModal);
+}
+
+function openPunchModal(row) {
+  const body = $('punchModalBody');
+  const name = row.employeeName ? `${row.employeeName} (${row.employeeId})` : row.employeeId;
+  const breakText = formatDuration(row.breakMinutes, state.timeUnit);
+  const segs = row.breakSegments || [];
+  const punches = row.punches || [];
+
+  const breaksHtml = segs.length
+    ? `<ul class="modal__list">${segs.map((s) =>
+        `<li><span>${escapeHtml(s.from)} → ${escapeHtml(s.to)}</span><strong>${escapeHtml(formatDuration(s.minutes, state.timeUnit))}</strong></li>`
+      ).join('')}</ul>`
+    : `<p class="modal__meta">${escapeHtml(t('modal.noBreaks'))}</p>`;
+
+  const punchesHtml = `<ul class="modal__list">${punches.map((p) =>
+    `<li><span>${escapeHtml(p.time)}</span><span>${escapeHtml(p.punchType || '—')}</span></li>`
+  ).join('')}</ul>`;
+
+  body.innerHTML = `
+    <div class="modal__meta"><strong>${escapeHtml(name)}</strong> · ${escapeHtml(row.date)} · ${escapeHtml(t('col.breakM'))}: <strong>${escapeHtml(breakText)}</strong></div>
+    <div><h4 class="modal__section-title">${escapeHtml(t('modal.breaks'))}</h4>${breaksHtml}</div>
+    <div><h4 class="modal__section-title">${escapeHtml(t('modal.punches'))} (${punches.length})</h4>${punchesHtml}</div>
+  `;
+  $('punchModal').hidden = false;
+}
+
+function closePunchModal() {
+  $('punchModal').hidden = true;
 }
 
 /* ---------- Export ---------- */
@@ -524,6 +621,8 @@ async function runExport() {
     sheetName: state.selectedSheet,
     mapping: collectMapping(),
     settings: collectSettings(),
+    lang: state.lang,
+    timeUnit: state.timeUnit,
   };
   console.info('[analyzer] export start → /api/export');
   showOverlay(t('overlay.exporting'));

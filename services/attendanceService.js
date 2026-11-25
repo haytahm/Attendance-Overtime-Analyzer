@@ -11,6 +11,7 @@ const {
   timeToMinutes,
   weekdayOf,
   eachDateInclusive,
+  previousDate,
 } = require('../utils/dateUtils');
 const { isCheckIn, punchKind } = require('../utils/columnMatcher');
 
@@ -33,13 +34,18 @@ const CALCULATION_MODES = ['firstLast', 'punchType'];
 
 const DEFAULT_SETTINGS = {
   calculationMode: 'firstLast', // see CALCULATION_MODES
-  standardHours: 10, // standard work day in hours (original behavior)
+  standardHours: 8, // standard work day in hours
   startTime: '', // official start "HH:mm" (enables late detection)
   endTime: '', // official end "HH:mm" (enables early-leave detection)
   breakMinutes: 0, // unpaid break subtracted from work hours
+  maxBreakMinutes: 75, // max allowed break per day in minutes (0 = disabled)
   overtimeRounding: 'none', // 'none' | 'nearest15' | 'nearest30'
   minOvertimeMinutes: 0, // ignore overtime below this many minutes
   weekendDays: [], // array of weekday numbers 0..6 (0 = Sunday) to exclude
+  nightShiftCutoff: '', // time like "05:00"; punches before this are grouped to previous day (empty = disabled)
+  dateFormat: 'auto', // 'auto' | 'DMY' | 'MDY'
+  periodStart: '', // optional YYYY-MM-DD start of analysis/absence period
+  periodEnd: '', // optional YYYY-MM-DD end of analysis/absence period
 };
 
 // Issue codes. The KEY is stable (used by the UI to localize); the value is the
@@ -51,6 +57,7 @@ const ISSUE = {
   SINGLE_PUNCH: 'Only one punch',
   INVALID: 'Invalid date/time',
   ABSENT: 'Absent',
+  BREAK_EXCEEDED: 'Break exceeded allowed limit',
 };
 
 /** Record an issue with both a stable key and the English label. */
@@ -92,6 +99,16 @@ function sanitizeSettings(input) {
     const n = Number(input.minOvertimeMinutes);
     if (!isNaN(n) && n >= 0) out.minOvertimeMinutes = n;
   }
+  if (input.maxBreakMinutes !== undefined && input.maxBreakMinutes !== '') {
+    const n = Number(input.maxBreakMinutes);
+    if (!isNaN(n) && n >= 0) out.maxBreakMinutes = n;
+  }
+  if (typeof input.nightShiftCutoff === 'string') out.nightShiftCutoff = normalizeTime(input.nightShiftCutoff) || '';
+  if (['auto', 'DMY', 'MDY'].includes(input.dateFormat)) {
+    out.dateFormat = input.dateFormat;
+  }
+  if (typeof input.periodStart === 'string') out.periodStart = normalizeDate(input.periodStart) || '';
+  if (typeof input.periodEnd === 'string') out.periodEnd = normalizeDate(input.periodEnd) || '';
   if (Array.isArray(input.weekendDays)) {
     out.weekendDays = input.weekendDays
       .map((d) => Number(d))
@@ -115,7 +132,7 @@ function analyze(records, settingsInput) {
   const issues = [];
 
   for (const rec of records) {
-    const isoDate = normalizeDate(rec.rawDate);
+    const isoDate = normalizeDate(rec.rawDate, settings.dateFormat);
     const isoTime = normalizeTime(rec.rawTime);
 
     if (!rec.employeeId) continue; // skip rows with no employee at all
@@ -130,12 +147,24 @@ function analyze(records, settingsInput) {
       continue;
     }
 
-    const key = `${rec.employeeId}__${isoDate}`;
+    // Night shift: punches before the cutoff time are grouped to the previous day.
+    let groupDate = isoDate;
+    if (settings.nightShiftCutoff) {
+      const cutoffMin = timeToMinutes(settings.nightShiftCutoff);
+      const punchMin = timeToMinutes(isoTime);
+      if (cutoffMin !== null && punchMin !== null && punchMin < cutoffMin) {
+        groupDate = previousDate(isoDate);
+      }
+    }
+
+    const key = `${rec.employeeId}__${groupDate}`;
+    if (settings.periodStart && groupDate < settings.periodStart) continue;
+    if (settings.periodEnd && groupDate > settings.periodEnd) continue;
     if (!groups.has(key)) {
       groups.set(key, {
         employeeId: rec.employeeId,
         employeeName: rec.employeeName || '',
-        date: isoDate,
+        date: groupDate,
         department: rec.department || '',
         punches: [],
       });
@@ -237,9 +266,6 @@ function detectAbsences(daily, settings, issues) {
   const absentByEmployee = new Map();
   if (daily.length === 0) return absentByEmployee;
 
-  const dates = daily.map((d) => d.date).sort();
-  const range = eachDateInclusive(dates[0], dates[dates.length - 1]);
-
   // Per-employee: the dates they have a record on, plus their display name.
   const attended = new Map(); // empId -> Set(dates)
   const names = new Map();
@@ -252,7 +278,13 @@ function detectAbsences(daily, settings, issues) {
     if (!names.has(d.employeeId) && d.employeeName) names.set(d.employeeId, d.employeeName);
   }
 
+  // Evaluate each employee across the configured period (if set) or their own
+  // first-to-last attendance range so mid-month joiners are not falsely marked absent.
   for (const [empId, attendedSet] of attended) {
+    const empDates = Array.from(attendedSet).sort();
+    const rangeStart = settings.periodStart || empDates[0];
+    const rangeEnd = settings.periodEnd || empDates[empDates.length - 1];
+    const range = eachDateInclusive(rangeStart, rangeEnd);
     for (const date of range) {
       if (settings.weekendDays.includes(weekdayOf(date))) continue; // off day
       if (attendedSet.has(date)) continue; // present
@@ -290,26 +322,55 @@ function computeDay(group, settings, issues) {
   };
 
   // Pick in / out punches according to the mode.
+  const sortedPunches = punches.slice().sort((a, b) => a.dateTime.getTime() - b.dateTime.getTime());
+  const punchList = sortedPunches.map((p) => ({ time: p.time, punchType: p.punchType || '' }));
   let inPunch = null;
   let outPunch = null;
   let breakMinutes = settings.breakMinutes; // manual break unless punches say otherwise
+  let breakSegments = [];
 
   if (usePunchType) {
     // Status-driven: NO fallback to unrecognized punches.
-    const kinds = punches.map((p) => ({ ...p, kind: punchKind(p.punchType) }));
+    const kinds = sortedPunches.map((p) => ({ ...p, kind: punchKind(p.punchType) }));
     const ins = kinds.filter((p) => p.kind === 'in');
     const outs = kinds.filter((p) => p.kind === 'out');
     if (ins.length) inPunch = minBy(ins, (p) => p.dateTime.getTime());
     if (outs.length) outPunch = maxBy(outs, (p) => p.dateTime.getTime());
 
-    // Compute the actual break taken from Break Out -> Break In pairs.
-    const punchBreak = computeBreakMinutes(kinds);
-    if (punchBreak !== null) breakMinutes = punchBreak; // overrides the manual setting
+    // Compute the actual break taken from Break Out -> Break In pairs
+    // and any intermediate Check Out -> Check In pairs between first-in and last-out.
+    const punchBreak = computeBreakMinutes(kinds, inPunch, outPunch);
+    if (punchBreak !== null) {
+      breakMinutes = punchBreak.total; // overrides the manual setting
+      breakSegments = punchBreak.segments;
+    }
   } else {
-    // First/last: ignore status labels entirely.
-    if (punches.length) {
-      inPunch = minBy(punches, (p) => p.dateTime.getTime());
-      outPunch = maxBy(punches, (p) => p.dateTime.getTime());
+    // First/last: ignore status labels; earliest punch = in, latest = out.
+    // Intermediate punches between first-in and last-out are paired as (exit, return) breaks.
+    if (sortedPunches.length) {
+      // Deduplicate identical timestamps so accidental double-taps don't create fake breaks.
+      const unique = [];
+      for (const p of sortedPunches) {
+        if (!unique.length || unique[unique.length - 1].dateTime.getTime() !== p.dateTime.getTime()) {
+          unique.push(p);
+        }
+      }
+      inPunch = unique[0];
+      outPunch = unique[unique.length - 1];
+      if (unique.length >= 3) {
+        const intermediates = unique.slice(1, -1);
+        let computedBreak = 0;
+        for (let i = 0; i + 1 < intermediates.length; i += 2) {
+          const mins = (intermediates[i + 1].dateTime.getTime() - intermediates[i].dateTime.getTime()) / 60000;
+          computedBreak += mins;
+          breakSegments.push({
+            from: intermediates[i].time,
+            to: intermediates[i + 1].time,
+            minutes: Math.round(mins),
+          });
+        }
+        breakMinutes = computedBreak;
+      }
     }
   }
 
@@ -345,6 +406,9 @@ function computeDay(group, settings, issues) {
       workHours: 0,
       overtimeHours: 0,
       breakMinutes: 0,
+      breakExceeded: false,
+      breakSegments: [],
+      punches: punchList,
       lateMinutes: 0,
       earlyLeaveMinutes: 0,
       isWeekend,
@@ -355,6 +419,18 @@ function computeDay(group, settings, issues) {
   }
 
   // Complete day: compute hours (subtract the break, computed or manual).
+  const breakExceeded = settings.maxBreakMinutes > 0 && breakMinutes > settings.maxBreakMinutes;
+  if (breakExceeded) {
+    const roundedTotal = Math.round(breakMinutes);
+    const overBy = Math.round(breakMinutes - settings.maxBreakMinutes);
+    pushIssue(
+      issues,
+      base,
+      'BREAK_EXCEEDED',
+      `Total break ${roundedTotal} min exceeds the allowed ${settings.maxBreakMinutes}-min limit by ${overBy} min.`
+    );
+  }
+
   const spanHours = Math.max(0, diffHours(inPunch.dateTime, outPunch.dateTime));
   let workHours = spanHours - breakMinutes / 60;
   if (workHours < 0) workHours = 0;
@@ -376,7 +452,9 @@ function computeDay(group, settings, issues) {
   if (isWeekend) notes.push('Weekend');
   if (lateMinutes > 0) notes.push(`Late ${lateMinutes}m`);
   if (earlyLeaveMinutes > 0) notes.push(`Early ${earlyLeaveMinutes}m`);
-  if (roundedBreak > 0) notes.push(`Break ${roundedBreak}m`);
+  if (roundedBreak > 0) {
+    notes.push(breakExceeded ? `Break ${roundedBreak}m (exceeded)` : `Break ${roundedBreak}m`);
+  }
 
   return {
     ...base,
@@ -386,6 +464,9 @@ function computeDay(group, settings, issues) {
     workHours: round(workHours, 2),
     overtimeHours: round(overtimeHours, 2),
     breakMinutes: roundedBreak,
+    breakExceeded,
+    breakSegments,
+    punches: punchList,
     lateMinutes,
     earlyLeaveMinutes,
     isWeekend,
@@ -396,23 +477,58 @@ function computeDay(group, settings, issues) {
 }
 
 /**
- * Total break minutes from Break Out -> Break In pairs for a day.
- * Returns null when there are no break punches at all (so callers can fall back
- * to the manual break setting). Unmatched break punches are ignored.
+ * Total break minutes from Break Out -> Break In pairs and intermediate
+ * Check Out -> Check In pairs (between first-in and last-out) for a day.
+ * Returns null when there are no break/intermediate punches at all (so callers
+ * can fall back to the manual break setting). Unmatched punches are ignored.
  */
-function computeBreakMinutes(kinds) {
-  const outs = kinds.filter((p) => p.kind === 'breakOut').sort((a, b) => a.dateTime - b.dateTime);
-  const ins = kinds.filter((p) => p.kind === 'breakIn').sort((a, b) => a.dateTime - b.dateTime);
-  if (!outs.length && !ins.length) return null;
+function computeBreakMinutes(kinds, inPunch, outPunch) {
+  const breakOuts = kinds.filter((p) => p.kind === 'breakOut').sort((a, b) => a.dateTime - b.dateTime);
+  const breakIns = kinds.filter((p) => p.kind === 'breakIn').sort((a, b) => a.dateTime - b.dateTime);
 
+  const interOuts = inPunch && outPunch
+    ? kinds.filter((p) =>
+        p.kind === 'out' &&
+        p !== outPunch &&
+        p.dateTime > inPunch.dateTime &&
+        p.dateTime < outPunch.dateTime
+      ).sort((a, b) => a.dateTime - b.dateTime)
+    : [];
+  const interIns = inPunch && outPunch
+    ? kinds.filter((p) =>
+        p.kind === 'in' &&
+        p !== inPunch &&
+        p.dateTime > inPunch.dateTime &&
+        p.dateTime < outPunch.dateTime
+      ).sort((a, b) => a.dateTime - b.dateTime)
+    : [];
+
+  if (!breakOuts.length && !breakIns.length && !interOuts.length && !interIns.length) {
+    return null;
+  }
+
+  let total = 0;
+  const segments = [];
+  total += sumPairedGaps(breakOuts, breakIns, segments);
+  total += sumPairedGaps(interOuts, interIns, segments);
+  segments.sort((a, b) => a.from.localeCompare(b.from));
+  return { total, segments };
+}
+
+function sumPairedGaps(outs, ins, segments) {
   let total = 0;
   const used = new Set();
   for (const o of outs) {
-    // Pair with the earliest not-yet-used Break In at/after this Break Out.
     const idx = ins.findIndex((i, k) => !used.has(k) && i.dateTime >= o.dateTime);
     if (idx >= 0) {
       used.add(idx);
-      total += (ins[idx].dateTime - o.dateTime) / 60000; // ms -> minutes
+      const mins = (ins[idx].dateTime - o.dateTime) / 60000;
+      total += mins;
+      segments.push({
+        from: o.time,
+        to: ins[idx].time,
+        minutes: Math.round(mins),
+      });
     }
   }
   return total;

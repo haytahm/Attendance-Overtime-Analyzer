@@ -408,6 +408,7 @@ function computeDay(group, settings, issues) {
       overtimeHours: 0,
       breakMinutes: 0,
       breakExceeded: false,
+      breakExcessMinutes: 0,
       breakSegments: [],
       punches: punchList,
       lateMinutes: 0,
@@ -421,14 +422,14 @@ function computeDay(group, settings, issues) {
 
   // Complete day: compute hours (subtract the break, computed or manual).
   const breakExceeded = settings.maxBreakMinutes > 0 && breakMinutes > settings.maxBreakMinutes;
+  const breakExcessMinutes = breakExceeded ? Math.round(breakMinutes - settings.maxBreakMinutes) : 0;
   if (breakExceeded) {
     const roundedTotal = Math.round(breakMinutes);
-    const overBy = Math.round(breakMinutes - settings.maxBreakMinutes);
     pushIssue(
       issues,
       base,
       'BREAK_EXCEEDED',
-      `Total break ${roundedTotal} min exceeds the allowed ${settings.maxBreakMinutes}-min limit by ${overBy} min.`
+      `Total break ${roundedTotal} min exceeds the allowed ${settings.maxBreakMinutes}-min limit by ${breakExcessMinutes} min.`
     );
   }
 
@@ -466,6 +467,7 @@ function computeDay(group, settings, issues) {
     overtimeHours: round(overtimeHours, 2),
     breakMinutes: roundedBreak,
     breakExceeded,
+    breakExcessMinutes,
     breakSegments,
     punches: punchList,
     lateMinutes,
@@ -580,6 +582,7 @@ function buildEmployeeSummaries(daily, period, absentByEmployee = new Map()) {
         totalWorkHours: 0,
         totalOvertimeHours: 0,
         totalBreakMinutes: 0,
+        totalBreakExcessMinutes: 0,
         totalLateMinutes: 0,
         totalEarlyLeaveMinutes: 0,
         incompleteDays: 0,
@@ -592,6 +595,7 @@ function buildEmployeeSummaries(daily, period, absentByEmployee = new Map()) {
     e.totalWorkHours += d.workHours;
     e.totalOvertimeHours += d.overtimeHours;
     e.totalBreakMinutes += d.breakMinutes || 0;
+    e.totalBreakExcessMinutes += d.breakExcessMinutes || 0;
     e.totalLateMinutes += d.lateMinutes;
     e.totalEarlyLeaveMinutes += d.earlyLeaveMinutes;
     if (!d.complete) e.incompleteDays += 1;
@@ -612,6 +616,7 @@ function buildEmployeeSummaries(daily, period, absentByEmployee = new Map()) {
         totalWorkHours: round(e.totalWorkHours, 2),
         totalOvertimeHours: round(e.totalOvertimeHours, 2),
         totalBreakMinutes: Math.round(e.totalBreakMinutes),
+        totalBreakExcessMinutes: Math.round(e.totalBreakExcessMinutes),
         totalWorkHoursText: decimalToHM(e.totalWorkHours),
         totalOvertimeHoursText: decimalToHM(e.totalOvertimeHours),
       };

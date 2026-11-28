@@ -122,6 +122,7 @@ test('punchType mode sums intermediate Check Out -> Check In pairs as break', ()
   const { daily, issues } = analyze(records, { calculationMode: 'punchType', standardHours: 8 });
   assert.strictEqual(daily[0].breakMinutes, 90);
   assert.strictEqual(daily[0].breakExceeded, true);
+  assert.strictEqual(daily[0].breakExcessMinutes, 15);
   assert.strictEqual(daily[0].workHours, 6.5); // 8h span - 1.5h break
   assert.ok(issues.some((i) => i.issueKey === 'BREAK_EXCEEDED'));
 });
@@ -136,6 +137,7 @@ test('firstLast break within 75m limit does not trigger BREAK_EXCEEDED', () => {
   const { daily, issues } = analyze(records, {});
   assert.strictEqual(daily[0].breakMinutes, 75);
   assert.strictEqual(daily[0].breakExceeded, false);
+  assert.strictEqual(daily[0].breakExcessMinutes, 0);
   assert.strictEqual(daily[0].workHours, 8.75); // 10h - 1.25h
   assert.strictEqual(issues.filter((i) => i.issueKey === 'BREAK_EXCEEDED').length, 0);
 });

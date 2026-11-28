@@ -33,6 +33,7 @@ const LABELS = {
       workHours: 'Work Hours',
       overtimeHours: 'Overtime Hours',
       breakMinutes: 'Break',
+      breakExcessMinutes: 'Break Excess',
       lateMinutes: 'Late',
       earlyLeaveMinutes: 'Early Leave',
       status: 'Status / Notes',
@@ -40,6 +41,7 @@ const LABELS = {
       totalWorkHours: 'Total Work Hours',
       totalOvertimeHours: 'Total Overtime Hours',
       totalBreakMinutes: 'Total Break',
+      totalBreakExcessMinutes: 'Total Break Excess',
       totalLateMinutes: 'Total Late',
       totalEarlyLeaveMinutes: 'Total Early Leave',
       incompleteDays: 'Incomplete Days',
@@ -125,6 +127,7 @@ const LABELS = {
       workHours: 'ساعات العمل',
       overtimeHours: 'الساعات الإضافية',
       breakMinutes: 'الاستراحة',
+      breakExcessMinutes: 'تجاوز الاستراحة',
       lateMinutes: 'التأخير',
       earlyLeaveMinutes: 'الانصراف المبكر',
       status: 'الحالة / ملاحظات',
@@ -132,6 +135,7 @@ const LABELS = {
       totalWorkHours: 'إجمالي ساعات العمل',
       totalOvertimeHours: 'إجمالي الإضافي',
       totalBreakMinutes: 'إجمالي الاستراحة',
+      totalBreakExcessMinutes: 'إجمالي تجاوز الاستراحة',
       totalLateMinutes: 'إجمالي التأخير',
       totalEarlyLeaveMinutes: 'إجمالي الانصراف المبكر',
       incompleteDays: 'الأيام غير المكتملة',
@@ -294,6 +298,7 @@ function buildDailySheet(wb, daily, L, isRtl, timeUnit, lang) {
     { header: C.workHours, key: 'workHours', width: 14 },
     { header: C.overtimeHours, key: 'overtimeHours', width: 16 },
     { header: C.breakMinutes, key: 'breakMinutes', width: 15 },
+    { header: C.breakExcessMinutes, key: 'breakExcessMinutes', width: 18 },
     { header: C.lateMinutes, key: 'lateMinutes', width: 14 },
     { header: C.earlyLeaveMinutes, key: 'earlyLeaveMinutes', width: 18 },
     { header: C.status, key: 'status', width: 28 },
@@ -310,6 +315,7 @@ function buildDailySheet(wb, daily, L, isRtl, timeUnit, lang) {
       workHours: d.workHours,
       overtimeHours: d.overtimeHours,
       breakMinutes: formatDuration(d.breakMinutes, timeUnit, lang),
+      breakExcessMinutes: formatDuration(d.breakExcessMinutes, timeUnit, lang),
       lateMinutes: formatDuration(d.lateMinutes, timeUnit, lang),
       earlyLeaveMinutes: formatDuration(d.earlyLeaveMinutes, timeUnit, lang),
       status: formatDailyStatus(d, L),
@@ -318,7 +324,7 @@ function buildDailySheet(wb, daily, L, isRtl, timeUnit, lang) {
   });
   numberFormat(sheet, ['workHours', 'overtimeHours'], '0.00');
   zebra(sheet);
-  exceededRows.forEach((row) => highlightExceededRow(row, ['breakMinutes', 'status']));
+  exceededRows.forEach((row) => highlightExceededRow(row, ['breakMinutes', 'breakExcessMinutes', 'status']));
 }
 
 function highlightExceededRow(row, boldKeys) {
@@ -341,6 +347,7 @@ function buildEmployeeSheet(wb, employees, L, isRtl, timeUnit, lang, exceededEmp
     { header: C.totalWorkHours, key: 'totalWorkHours', width: 18 },
     { header: C.totalOvertimeHours, key: 'totalOvertimeHours', width: 19 },
     { header: C.totalBreakMinutes, key: 'totalBreakMinutes', width: 18 },
+    { header: C.totalBreakExcessMinutes, key: 'totalBreakExcessMinutes', width: 22 },
     { header: C.totalLateMinutes, key: 'totalLateMinutes', width: 18 },
     { header: C.totalEarlyLeaveMinutes, key: 'totalEarlyLeaveMinutes', width: 23 },
     { header: C.incompleteDays, key: 'incompleteDays', width: 18 },
@@ -356,6 +363,7 @@ function buildEmployeeSheet(wb, employees, L, isRtl, timeUnit, lang, exceededEmp
       totalWorkHours: e.totalWorkHours,
       totalOvertimeHours: e.totalOvertimeHours,
       totalBreakMinutes: formatDuration(e.totalBreakMinutes, timeUnit, lang),
+      totalBreakExcessMinutes: formatDuration(e.totalBreakExcessMinutes, timeUnit, lang),
       totalLateMinutes: formatDuration(e.totalLateMinutes, timeUnit, lang),
       totalEarlyLeaveMinutes: formatDuration(e.totalEarlyLeaveMinutes, timeUnit, lang),
       incompleteDays: e.incompleteDays,
@@ -365,7 +373,7 @@ function buildEmployeeSheet(wb, employees, L, isRtl, timeUnit, lang, exceededEmp
   });
   numberFormat(sheet, ['totalWorkHours', 'totalOvertimeHours'], '0.00');
   zebra(sheet);
-  exceededRows.forEach((row) => highlightExceededRow(row, ['totalBreakMinutes']));
+  exceededRows.forEach((row) => highlightExceededRow(row, ['totalBreakMinutes', 'totalBreakExcessMinutes']));
 }
 
 function buildIssuesSheet(wb, issues, L, isRtl) {

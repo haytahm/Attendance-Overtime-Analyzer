@@ -479,20 +479,12 @@ function renderTable() {
 
 function formatDuration(minutes, unit) {
   const m = Math.round(Number(minutes) || 0);
-  if (m === 0) return '0';
   if (unit === 'minutes') {
     return state.lang === 'ar' ? `${m} د` : `${m}m`;
   }
   const h = Math.floor(m / 60);
   const rem = m % 60;
-  if (state.lang === 'ar') {
-    if (h && rem) return `${h}س ${rem}د`;
-    if (h) return `${h}س`;
-    return `${rem}د`;
-  }
-  if (h && rem) return `${h}h ${rem}m`;
-  if (h) return `${h}h`;
-  return `${rem}m`;
+  return `${h}:${String(rem).padStart(2, '0')}`;
 }
 
 function renderCell(row, col, rowIdx) {
@@ -504,7 +496,7 @@ function renderCell(row, col, rowIdx) {
     const altUnit = state.timeUnit === 'hours' ? 'minutes' : 'hours';
     const durHtml = mins > 0
       ? `<span class="dur-toggle" data-mins="${mins}" data-unit="${state.timeUnit}" title="${escapeHtml(formatDuration(mins, altUnit))}">${escapeHtml(formatDuration(mins, state.timeUnit))}</span>`
-      : '0';
+      : (state.timeUnit === 'hours' ? '0:00' : '0');
     if (col.punchDetails && row.punches && row.punches.length > 0) {
       return `${durHtml}<button type="button" class="btn-xs punch-details-btn" data-row-idx="${rowIdx}">${escapeHtml(t('btn.details'))}</button>`;
     }

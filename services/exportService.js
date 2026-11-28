@@ -207,20 +207,10 @@ const LABELS = {
   },
 };
 
-function formatDuration(minutes, unit, lang) {
+function formatDuration(minutes, unit) {
   const m = Math.round(Number(minutes) || 0);
-  if (m === 0) return 0;
   if (unit === 'minutes') return m;
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  if (lang === 'ar') {
-    if (h && rem) return `${h}س ${rem}د`;
-    if (h) return `${h}س`;
-    return `${rem}د`;
-  }
-  if (h && rem) return `${h}h ${rem}m`;
-  if (h) return `${h}h`;
-  return `${rem}m`;
+  return m / 1440; // Excel time fraction formatted with [h]:mm
 }
 
 async function buildReport(analysis, lang = 'en', timeUnit = 'hours') {
@@ -323,6 +313,9 @@ function buildDailySheet(wb, daily, L, isRtl, timeUnit, lang) {
     if (d.breakExceeded) exceededRows.push(row);
   });
   numberFormat(sheet, ['workHours', 'overtimeHours'], '0.00');
+  if (timeUnit === 'hours') {
+    numberFormat(sheet, ['breakMinutes', 'breakExcessMinutes', 'lateMinutes', 'earlyLeaveMinutes'], '[h]:mm');
+  }
   zebra(sheet);
   exceededRows.forEach((row) => highlightExceededRow(row, ['breakMinutes', 'breakExcessMinutes', 'status']));
 }
@@ -372,6 +365,9 @@ function buildEmployeeSheet(wb, employees, L, isRtl, timeUnit, lang, exceededEmp
     if (exceededEmpIds.has(e.employeeId)) exceededRows.push(row);
   });
   numberFormat(sheet, ['totalWorkHours', 'totalOvertimeHours'], '0.00');
+  if (timeUnit === 'hours') {
+    numberFormat(sheet, ['totalBreakMinutes', 'totalBreakExcessMinutes', 'totalLateMinutes', 'totalEarlyLeaveMinutes'], '[h]:mm');
+  }
   zebra(sheet);
   exceededRows.forEach((row) => highlightExceededRow(row, ['totalBreakMinutes', 'totalBreakExcessMinutes']));
 }
